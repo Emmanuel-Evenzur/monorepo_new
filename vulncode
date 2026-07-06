@@ -1,0 +1,73 @@
+# ==== vulnerable_samples.py ====
+import os
+import sqlite3
+import subprocess
+import pickle
+import yaml
+import hashlib
+from flask import Flask, request, render_template_string
+
+app = Flask(__name__)
+
+# 1. SQL Injection - string concatenation into query
+def get_user(username):
+    conn = sqlite3.connect("app.db")
+    cursor = conn.cursor()
+    query = "SELECT * FROM users WHERE username = '" + username + "'"
+    cursor.execute(query)
+    return cursor.fetchall()
+
+# 2. Command Injection
+@app.route("/ping")
+def ping():
+    host = request.args.get("host")
+    result = subprocess.run(f"ping -c 1 {host}", shell=True, capture_output=True)
+    return result.stdout
+
+# 3. Reflected XSS - unescaped user input rendered as HTML/template
+@app.route("/greet")
+def greet():
+    name = request.args.get("name", "")
+    template = f"<h1>Hello, {name}!</h1>"
+    return render_template_string(template)
+
+# 4. Hardcoded credentials / secrets
+DB_PASSWORD = "SuperSecret123!"
+API_KEY = "sk-live-4242424242424242"
+
+# 5. Insecure deserialization
+def load_session(data):
+    return pickle.loads(data)  # arbitrary code execution if data is attacker-controlled
+
+# 6. YAML unsafe load
+def load_config(raw_yaml):
+    return yaml.load(raw_yaml, Loader=yaml.Loader)  # should be safe_load
+
+# 7. Weak cryptography
+def hash_password(password):
+    return hashlib.md5(password.encode()).hexdigest()  # MD5 is broken for passwords
+
+# 8. Path traversal
+@app.route("/download")
+def download():
+    filename = request.args.get("file")
+    path = os.path.join("/var/app/files/", filename)
+    with open(path, "rb") as f:
+        return f.read()
+
+# 9. Insecure use of eval
+@app.route("/calc")
+def calc():
+    expr = request.args.get("expr")
+    return str(eval(expr))
+
+# 10. SSRF - unvalidated outbound request to user-supplied URL
+import requests
+@app.route("/fetch")
+def fetch():
+    url = request.args.get("url")
+    resp = requests.get(url)
+    return resp.text
+
+if __name__ == "__main__":
+    app.run(debug=True)  # 11. Debug mode enabled in "production"-looking entrypoint
